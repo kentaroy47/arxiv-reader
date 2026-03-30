@@ -1,0 +1,22 @@
+# 環境変数・シークレット (絶対にコミットしない)
+backend/.env
+**/.env
+**/.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Flutter
+frontend/.dart_tool/
+frontend/build/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/pubspec.lock
+
+# OS
+.DS_Store
+Thumbs.db

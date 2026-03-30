@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(flutter pub:*)"
+      "Bash(flutter pub:*)",
+      "Bash(pip install:*)",
+      "Bash(python -m pip install -r requirements.txt)",
+      "Bash(where python3:*)",
+      "Bash(where py:*)",
+      "Bash(where python:*)",
+      "Bash(ls /c/Python*)",
+      "Read(//c/Users/kyosh/AppData/Local/Programs/**)",
+      "Read(//c//**)",
+      "Bash(powershell.exe \"Get-Command python | Select-Object -ExpandProperty Source\")"
     ]
   }
 }
