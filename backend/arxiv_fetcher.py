@@ -1,15 +1,20 @@
-"""arxiv API から論文を取得するモジュール。"""
+"""arxiv RSS フィードから論文を取得するモジュール。
+
+API (export.arxiv.org) の代わりに RSS を使用することで
+レート制限を回避する。RSS は当日の最新バッチを返す。
+"""
 
 import asyncio
+import re
 import httpx
 import feedparser
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 from loguru import logger
 
-ARXIV_API = "https://export.arxiv.org/api/query"
-REQUEST_DELAY = 5.0   # arxiv レート制限対応 (秒)
-MAX_RETRIES = 4       # 429 時の最大リトライ回数
+RSS_BASE = "https://rss.arxiv.org/rss"
+REQUEST_DELAY = 3.0  # カテゴリ間の待機 (秒)
+HEADERS = {"User-Agent": "arxiv-reader/1.0 (research tool; mailto:local)"}
 
 
 async def fetch_papers_for_date(
@@ -17,35 +22,24 @@ async def fetch_papers_for_date(
     target_date: date,
     max_results: int = 200,
 ) -> list[dict[str, Any]]:
-    """指定日・カテゴリの arxiv 論文を取得する。"""
+    """RSS フィードから指定カテゴリの論文を取得する。
+
+    RSS は「直近の提出バッチ」を返すため、target_date は
+    取得後のフィルタリングに使用する（当日実行が前提）。
+    """
     all_papers: list[dict[str, Any]] = []
 
-    date_str = target_date.strftime("%Y%m%d")
-    next_str = (target_date + timedelta(days=1)).strftime("%Y%m%d")
-
-    headers = {"User-Agent": "arxiv-reader/1.0 (https://github.com/local/arxiv-reader; research tool)"}
-    async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=30.0, headers=HEADERS) as client:
         for i, cat in enumerate(categories):
             if i > 0:
                 await asyncio.sleep(REQUEST_DELAY)
-
-            query = f"cat:{cat} AND submittedDate:[{date_str}0000 TO {next_str}0000]"
-            params = {
-                "search_query": query,
-                "start": 0,
-                "max_results": max_results,
-                "sortBy": "submittedDate",
-                "sortOrder": "descending",
-            }
-
             try:
-                logger.info(f"Fetching {cat} for {target_date}...")
-                papers = await _fetch_with_retry(client, params)
-                logger.info(f"  {cat}: {len(papers)} papers")
+                logger.info(f"RSS 取得中: {cat} ...")
+                papers = await _fetch_rss(client, cat, max_results)
+                logger.info(f"  {cat}: {len(papers)} 件")
                 all_papers.extend(papers)
-
             except Exception as exc:
-                logger.error(f"Failed to fetch {cat}: {exc}")
+                logger.error(f"RSS 取得失敗 [{cat}]: {exc}")
 
     # arxiv_id で重複除去
     seen: set[str] = set()
@@ -55,43 +49,75 @@ async def fetch_papers_for_date(
             seen.add(p["arxiv_id"])
             unique.append(p)
 
-    logger.info(f"Total unique papers: {len(unique)}")
+    logger.info(f"合計ユニーク論文数: {len(unique)}")
     return unique
 
 
-async def _fetch_with_retry(client: httpx.AsyncClient, params: dict) -> list[dict[str, Any]]:
-    """429 の場合はエクスポネンシャルバックオフでリトライ。"""
-    for attempt in range(MAX_RETRIES):
-        resp = await client.get(ARXIV_API, params=params)
-        if resp.status_code == 429:
-            wait = REQUEST_DELAY * (2 ** attempt)
-            logger.warning(f"429 レート制限 — {wait:.0f}秒後にリトライ ({attempt+1}/{MAX_RETRIES})")
-            await asyncio.sleep(wait)
-            continue
-        resp.raise_for_status()
-        feed = feedparser.parse(resp.text)
-        return [_parse_entry(e) for e in feed.entries]
-    raise RuntimeError(f"{MAX_RETRIES} 回リトライしても 429 が解消しませんでした")
+async def _fetch_rss(
+    client: httpx.AsyncClient,
+    category: str,
+    max_results: int,
+) -> list[dict[str, Any]]:
+    url = f"{RSS_BASE}/{category}"
+    resp = await client.get(url)
+    resp.raise_for_status()
+
+    feed = feedparser.parse(resp.text)
+    papers = [_parse_entry(e) for e in feed.entries if _parse_entry(e)]
+    return papers[:max_results]
 
 
-def _parse_entry(entry: Any) -> dict[str, Any]:
-    # arxiv_id: "2401.12345" 形式に正規化
-    arxiv_id = entry.id.split("/abs/")[-1].split("v")[0]
+def _parse_entry(entry: Any) -> dict[str, Any] | None:
+    try:
+        # arxiv_id を URL から抽出
+        link = getattr(entry, "link", "") or getattr(entry, "id", "")
+        m = re.search(r"arxiv\.org/abs/([^\sv]+)", link)
+        if not m:
+            return None
+        arxiv_id = re.sub(r"v\d+$", "", m.group(1))
 
-    authors = [a.name for a in getattr(entry, "authors", [])]
-    categories = [tag.term for tag in getattr(entry, "tags", [])]
+        # タイトル (RSS は "[category] Title" 形式のことがある)
+        title = entry.title.strip()
+        title = re.sub(r"^\[.+?\]\s*", "", title)
 
-    links = {lk.rel: lk.href for lk in getattr(entry, "links", [])}
-    arxiv_url = links.get("alternate", entry.link)
-    pdf_url = arxiv_url.replace("/abs/", "/pdf/")
+        # アブストラクト
+        raw_summary = getattr(entry, "summary", "")
+        abstract = re.sub(r"<[^>]+>", "", raw_summary).strip()
+        abstract = re.sub(r"^Abstract:\s*", "", abstract)
 
-    return {
-        "arxiv_id": arxiv_id,
-        "title": entry.title.replace("\n", " ").strip(),
-        "authors": authors,
-        "abstract": entry.summary.replace("\n", " ").strip(),
-        "categories": categories,
-        "published_date": entry.published[:10],
-        "arxiv_url": arxiv_url,
-        "pdf_url": pdf_url,
-    }
+        # 著者 (RSS では entry.author が文字列のことが多い)
+        if hasattr(entry, "authors") and entry.authors:
+            authors = [a.get("name", "") for a in entry.authors]
+        elif hasattr(entry, "author"):
+            authors = [a.strip() for a in entry.author.split(",")]
+        else:
+            authors = []
+
+        # カテゴリ
+        categories = [tag.term for tag in getattr(entry, "tags", [])]
+
+        # 公開日
+        published_date = ""
+        if hasattr(entry, "published_parsed") and entry.published_parsed:
+            from datetime import date as _date
+            t = entry.published_parsed
+            published_date = _date(t.tm_year, t.tm_mon, t.tm_mday).isoformat()
+        elif hasattr(entry, "published"):
+            published_date = entry.published[:10]
+
+        arxiv_url = f"https://arxiv.org/abs/{arxiv_id}"
+        pdf_url = f"https://arxiv.org/pdf/{arxiv_id}"
+
+        return {
+            "arxiv_id": arxiv_id,
+            "title": title.replace("\n", " "),
+            "authors": authors,
+            "abstract": abstract.replace("\n", " "),
+            "categories": categories,
+            "published_date": published_date,
+            "arxiv_url": arxiv_url,
+            "pdf_url": pdf_url,
+        }
+    except Exception as exc:
+        logger.warning(f"エントリ解析失敗: {exc}")
+        return None

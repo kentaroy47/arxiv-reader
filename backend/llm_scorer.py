@@ -50,18 +50,19 @@ Respond with JSON only (no markdown, no explanation outside JSON):
 
     async with semaphore:
         try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
+            async with httpx.AsyncClient(timeout=180.0) as client:
                 resp = await client.post(
-                    f"{ollama_url}/v1/chat/completions",
+                    f"{ollama_url}/api/chat",
                     json={
                         "model": model,
                         "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.1,
+                        "options": {"temperature": 0.1},
+                        "think": False,
                         "stream": False,
                     },
                 )
                 resp.raise_for_status()
-                content = resp.json()["choices"][0]["message"]["content"]
+                content = resp.json()["message"]["content"]
                 data = _extract_json(content)
                 score = float(data.get("score", 0.0))
                 reason = str(data.get("reason", ""))
@@ -89,16 +90,16 @@ async def summarize_paper(
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
-                f"{ollama_url}/v1/chat/completions",
+                f"{ollama_url}/api/chat",
                 json={
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
+                    "options": {"temperature": 0.3},
                     "stream": False,
                 },
             )
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"].strip()
+            return resp.json()["message"]["content"].strip()
     except Exception as exc:
         logger.warning(f"Summarize failed [{paper['arxiv_id']}]: {exc}")
         return ""

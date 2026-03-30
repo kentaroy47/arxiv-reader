@@ -13,7 +13,8 @@
       "Bash(powershell.exe \"Get-Command python | Select-Object -ExpandProperty Source\")",
       "Bash(python main.py --run-now)",
       "Bash(python main.py --run-now --date 2026-03-28)",
-      "Bash(python test_pipeline.py)"
+      "Bash(python test_pipeline.py)",
+      "Bash(python -c \":*)"
     ]
   }
 }
