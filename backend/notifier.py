@@ -57,7 +57,21 @@ def _slack_body(papers: list[dict[str, Any]], target_date: date) -> str:
         pct = int(p.get("score", 0) * 100)
         reason = p.get("score_reason", "")
         summary = p.get("summary", "")
+        authors = p.get("authors") or []
+        if len(authors) > 3:
+            author_str = ", ".join(authors[:3]) + " et al."
+        else:
+            author_str = ", ".join(authors)
         lines.append(f"• *[{pct}%]* <{p['arxiv_url']}|{p['title']}>")
+        affiliations = p.get("affiliations") or []
+        affil_str = " / ".join(affiliations[:2])
+        if affil_str and len(affiliations) > 2:
+            affil_str += f" 他{len(affiliations)-2}機関"
+        if author_str:
+            line = f"  👤 {author_str}"
+            if affil_str:
+                line += f"  ({affil_str})"
+            lines.append(line)
         if reason:
             lines.append(f"  _{reason}_")
         if summary:

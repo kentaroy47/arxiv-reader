@@ -8,6 +8,7 @@ import asyncio
 import re
 import httpx
 import feedparser
+from bs4 import BeautifulSoup
 from datetime import date
 from typing import Any
 from loguru import logger
@@ -121,3 +122,30 @@ def _parse_entry(entry: Any) -> dict[str, Any] | None:
     except Exception as exc:
         logger.warning(f"エントリ解析失敗: {exc}")
         return None
+
+
+async def fetch_affiliations(arxiv_id: str) -> list[str]:
+    """arxiv HTML ページから所属機関リストを取得する。
+
+    arxiv の HTML 論文ページ (/html/{id}) を解析する。
+    HTML 版が存在しない場合は空リストを返す。
+    """
+    url = f"https://arxiv.org/html/{arxiv_id}"
+    try:
+        async with httpx.AsyncClient(timeout=20.0, headers=HEADERS, follow_redirects=True) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return []
+        soup = BeautifulSoup(resp.text, "html.parser")
+        seen: set[str] = set()
+        affiliations: list[str] = []
+        for el in soup.select(".ltx_role_affiliation .ltx_note_content, .ltx_author_affiliation"):
+            text = el.get_text(" ", strip=True)
+            text = re.sub(r"\s+", " ", text).strip()
+            if text and text not in seen:
+                seen.add(text)
+                affiliations.append(text)
+        return affiliations
+    except Exception as exc:
+        logger.warning(f"所属機関取得失敗 [{arxiv_id}]: {exc}")
+        return []

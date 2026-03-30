@@ -38,14 +38,26 @@ async def _score_one(
 ) -> tuple[float, str]:
     """1論文のスコアを返す (score: 0.0–1.0, reason: 日本語)。"""
     interests_str = "、".join(interests) if interests else "機械学習、AI"
-    prompt = f"""You are a research assistant. Rate this paper's relevance to the researcher's interests.
+    prompt = f"""You are a research assistant helping a researcher filter arxiv papers.
 
 Researcher's interests: {interests_str}
 
+Score the paper's relevance using these criteria:
+- 0.9–1.0: Directly addresses the researcher's core interests. Must-read.
+- 0.7–0.9: Clearly related, useful methods or results. Worth reading.
+- 0.5–0.7: Peripheral topic, some overlap. Read if time allows.
+- 0.0–0.5: Largely unrelated.
+
+Few-shot examples:
+- A paper proposing a new LLM inference optimization achieving 3x speedup → score: 0.92 (directly matches "LLM inference")
+- A paper on 3D object detection using LiDAR for autonomous driving → score: 0.88 (matches "lidar" and "autonomous driving")
+- A paper on medical image segmentation with diffusion models → score: 0.35 (unrelated to stated interests)
+
+Now score this paper:
 Title: {paper["title"]}
 Abstract: {paper["abstract"][:1500]}
 
-Respond with JSON only (no markdown, no explanation outside JSON):
+Respond with JSON only (no markdown):
 {{"score": <float 0.0-1.0>, "reason": "<1-2 sentences in Japanese explaining the score>"}}"""
 
     async with semaphore:

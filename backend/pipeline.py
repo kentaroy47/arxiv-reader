@@ -6,7 +6,7 @@ from typing import Any
 from loguru import logger
 from supabase import Client
 
-from arxiv_fetcher import fetch_papers_for_date
+from arxiv_fetcher import fetch_papers_for_date, fetch_affiliations
 from llm_scorer import score_papers_batch, summarize_paper
 from pdf_downloader import download_and_extract
 from notifier import send_notification
@@ -67,7 +67,24 @@ async def run_pipeline(
             logger.error(f"Score 失敗: {exc}")
             return
 
-    # ── Stage 3: PDF 要約 ───────────────────────────────────────────────
+    # ── Stage 3: 所属機関取得 ────────────────────────────────────────────
+    above = _get_above_threshold(supabase, target_date, threshold)
+    if above:
+        logger.info(f"所属機関取得: {len(above)} 件")
+        for i, paper in enumerate(above):
+            if i > 0:
+                await asyncio.sleep(2.0)
+            affiliations = await fetch_affiliations(paper["arxiv_id"])
+            if affiliations:
+                try:
+                    supabase.table("papers").update(
+                        {"affiliations": affiliations}
+                    ).eq("arxiv_id", paper["arxiv_id"]).execute()
+                    logger.info(f"  所属機関保存: {paper['arxiv_id']} — {affiliations[:2]}")
+                except Exception as exc:
+                    logger.warning(f"  所属機関保存失敗 [{paper['arxiv_id']}]: {exc}")
+
+    # ── Stage 4: PDF 要約 ───────────────────────────────────────────────
     above = _get_above_threshold(supabase, target_date, threshold)
     if above and interests:
         _log(supabase, "summarize", "running", 0, None, target_date)
