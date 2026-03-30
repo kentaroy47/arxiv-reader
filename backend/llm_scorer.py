@@ -75,14 +75,16 @@ async def summarize_paper(
     paper: dict[str, Any],
     ollama_url: str,
     model: str,
+    full_text: str = "",
 ) -> str:
-    """論文を日本語で要約する。"""
+    """論文を日本語で要約する。full_text があれば全文、なければ abstract を使用。"""
+    body = full_text if full_text else paper["abstract"][:2000]
     prompt = f"""以下の論文を日本語で200〜300字程度に要約してください。
 重要な貢献・手法・結果に焦点を当て、専門家向けに簡潔にまとめてください。
 要約のみを出力し、前置きは不要です。
 
 タイトル: {paper["title"]}
-概要: {paper["abstract"][:2000]}"""
+本文: {body}"""
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:

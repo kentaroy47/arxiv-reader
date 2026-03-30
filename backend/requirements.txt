@@ -4,3 +4,4 @@ apscheduler==3.10.4
 supabase==2.7.4
 python-dotenv==1.0.1
 loguru==0.7.2
+pymupdf==1.24.9

@@ -1,4 +1,4 @@
-"""日次パイプライン: arxiv取得 → LLMスコアリング → Supabase保存 → 通知。"""
+"""日次パイプライン: arxiv取得 → LLMスコアリング → Supabase保存 → PDF要約 → 通知。"""
 
 import asyncio
 from datetime import date
@@ -7,8 +7,11 @@ from loguru import logger
 from supabase import Client
 
 from arxiv_fetcher import fetch_papers_for_date
-from llm_scorer import score_papers_batch
+from llm_scorer import score_papers_batch, summarize_paper
+from pdf_downloader import download_and_extract
 from notifier import send_notification
+
+MAX_PDF_DOWNLOADS = 10  # 1回のパイプラインでダウンロードする最大件数
 
 
 async def run_pipeline(
@@ -64,9 +67,22 @@ async def run_pipeline(
             logger.error(f"Score 失敗: {exc}")
             return
 
-    # ── Stage 3: Notify ─────────────────────────────────────────────────
-    if notif_type != "none":
+    # ── Stage 3: PDF 要約 ───────────────────────────────────────────────
+    above = _get_above_threshold(supabase, target_date, threshold)
+    if above and interests:
+        _log(supabase, "summarize", "running", 0, None, target_date)
+        try:
+            await _summarize_and_save(supabase, above, ollama_url, model)
+            _log(supabase, "summarize", "success", min(len(above), MAX_PDF_DOWNLOADS), None, target_date)
+        except Exception as exc:
+            _log(supabase, "summarize", "failed", 0, str(exc), target_date)
+            logger.error(f"Summarize 失敗: {exc}")
+        # 要約を含む最新データを再取得
         above = _get_above_threshold(supabase, target_date, threshold)
+
+    # ── Stage 4: Notify ─────────────────────────────────────────────────
+    if notif_type != "none":
+        above = above if above else _get_above_threshold(supabase, target_date, threshold)
         if above:
             _log(supabase, "notify", "running", 0, None, target_date)
             ok = await send_notification(notif_type, above, target_date, settings)
@@ -75,6 +91,38 @@ async def run_pipeline(
             logger.info("閾値超え論文なし — 通知スキップ")
 
     logger.info(f"=== パイプライン完了: {target_date} ===")
+
+
+async def _summarize_and_save(
+    supabase: Client,
+    papers: list[dict],
+    ollama_url: str,
+    model: str,
+) -> None:
+    """閾値超え論文の PDF をダウンロードして要約し Supabase に保存。"""
+    targets = papers[:MAX_PDF_DOWNLOADS]
+    logger.info(f"PDF 要約開始: {len(targets)} 件")
+
+    for i, paper in enumerate(targets):
+        if i > 0:
+            await asyncio.sleep(5.0)  # arxiv に優しく
+
+        pdf_url = paper.get("pdf_url", "")
+        if not pdf_url:
+            continue
+
+        logger.info(f"  [{i+1}/{len(targets)}] {paper['arxiv_id']} ダウンロード中...")
+        full_text = await download_and_extract(pdf_url)
+        summary = await summarize_paper(paper, ollama_url, model, full_text=full_text)
+
+        if summary:
+            try:
+                supabase.table("papers").update(
+                    {"summary": summary}
+                ).eq("arxiv_id", paper["arxiv_id"]).execute()
+                logger.info(f"  要約保存完了: {paper['arxiv_id']}")
+            except Exception as exc:
+                logger.error(f"  要約保存失敗 [{paper['arxiv_id']}]: {exc}")
 
 
 # ── Supabase ヘルパー ─────────────────────────────────────────────────────

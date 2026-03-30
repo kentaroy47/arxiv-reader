@@ -56,9 +56,13 @@ def _slack_body(papers: list[dict[str, Any]], target_date: date) -> str:
     for p in papers[:15]:
         pct = int(p.get("score", 0) * 100)
         reason = p.get("score_reason", "")
+        summary = p.get("summary", "")
         lines.append(f"• *[{pct}%]* <{p['arxiv_url']}|{p['title']}>")
         if reason:
             lines.append(f"  _{reason}_")
+        if summary:
+            short = summary[:200] + "…" if len(summary) > 200 else summary
+            lines.append(f"  {short}")
     if len(papers) > 15:
         lines.append(f"\n... 他 {len(papers) - 15} 件")
     return "\n".join(lines)

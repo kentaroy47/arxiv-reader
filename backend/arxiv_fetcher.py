@@ -8,7 +8,8 @@ from typing import Any
 from loguru import logger
 
 ARXIV_API = "https://export.arxiv.org/api/query"
-REQUEST_DELAY = 3.0  # arxiv レート制限対応 (秒)
+REQUEST_DELAY = 5.0   # arxiv レート制限対応 (秒)
+MAX_RETRIES = 4       # 429 時の最大リトライ回数
 
 
 async def fetch_papers_for_date(
@@ -22,7 +23,8 @@ async def fetch_papers_for_date(
     date_str = target_date.strftime("%Y%m%d")
     next_str = (target_date + timedelta(days=1)).strftime("%Y%m%d")
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    headers = {"User-Agent": "arxiv-reader/1.0 (https://github.com/local/arxiv-reader; research tool)"}
+    async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
         for i, cat in enumerate(categories):
             if i > 0:
                 await asyncio.sleep(REQUEST_DELAY)
@@ -38,11 +40,7 @@ async def fetch_papers_for_date(
 
             try:
                 logger.info(f"Fetching {cat} for {target_date}...")
-                resp = await client.get(ARXIV_API, params=params)
-                resp.raise_for_status()
-
-                feed = feedparser.parse(resp.text)
-                papers = [_parse_entry(e) for e in feed.entries]
+                papers = await _fetch_with_retry(client, params)
                 logger.info(f"  {cat}: {len(papers)} papers")
                 all_papers.extend(papers)
 
@@ -59,6 +57,21 @@ async def fetch_papers_for_date(
 
     logger.info(f"Total unique papers: {len(unique)}")
     return unique
+
+
+async def _fetch_with_retry(client: httpx.AsyncClient, params: dict) -> list[dict[str, Any]]:
+    """429 の場合はエクスポネンシャルバックオフでリトライ。"""
+    for attempt in range(MAX_RETRIES):
+        resp = await client.get(ARXIV_API, params=params)
+        if resp.status_code == 429:
+            wait = REQUEST_DELAY * (2 ** attempt)
+            logger.warning(f"429 レート制限 — {wait:.0f}秒後にリトライ ({attempt+1}/{MAX_RETRIES})")
+            await asyncio.sleep(wait)
+            continue
+        resp.raise_for_status()
+        feed = feedparser.parse(resp.text)
+        return [_parse_entry(e) for e in feed.entries]
+    raise RuntimeError(f"{MAX_RETRIES} 回リトライしても 429 が解消しませんでした")
 
 
 def _parse_entry(entry: Any) -> dict[str, Any]:
