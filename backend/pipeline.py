@@ -11,7 +11,7 @@ from llm_scorer import score_papers_batch, summarize_paper
 from pdf_downloader import download_and_extract
 from notifier import send_notification
 
-MAX_PDF_DOWNLOADS = 10  # 1回のパイプラインでダウンロードする最大件数
+MAX_PDF_DOWNLOADS = 20  # 1回のパイプラインでダウンロードする最大件数
 
 
 async def run_pipeline(
