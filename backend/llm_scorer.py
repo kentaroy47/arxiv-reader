@@ -100,13 +100,14 @@ async def summarize_paper(
 本文: {body}"""
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             resp = await client.post(
                 f"{ollama_url}/api/chat",
                 json={
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
                     "options": {"temperature": 0.3},
+                    "think": False,
                     "stream": False,
                 },
             )
