@@ -35,50 +35,71 @@ async def _send_slack(
         logger.error("Slack webhook URL が設定されていません")
         return False
 
-    text = _slack_body(papers, target_date)
+    chunks = _slack_chunks(papers, target_date)
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, json={"text": text})
-            resp.raise_for_status()
-        logger.info(f"Slack 通知送信: {len(papers)} 件")
+            for i, chunk in enumerate(chunks):
+                if i > 0:
+                    await asyncio.sleep(1.0)
+                resp = await client.post(url, json={"text": chunk})
+                resp.raise_for_status()
+        logger.info(f"Slack 通知送信: {len(papers)} 件 ({len(chunks)} メッセージ)")
         return True
     except Exception as exc:
         logger.error(f"Slack 通知失敗: {exc}")
         return False
 
 
-def _slack_body(papers: list[dict[str, Any]], target_date: date) -> str:
-    lines = [
+SLACK_LIMIT = 3800  # 4000 文字制限に対して余裕を持たせる
+
+
+def _slack_chunks(papers: list[dict[str, Any]], target_date: date) -> list[str]:
+    """4,000 文字制限を超える場合はメッセージを分割する。"""
+    header = "\n".join([
         f"*📄 arxiv 新着論文レポート ({target_date})*",
         f"スコア閾値を超えた論文: *{len(papers)} 件*",
         "",
-    ]
-    for p in papers[:15]:
-        pct = int(p.get("score", 0) * 100)
-        reason = p.get("score_reason", "")
-        summary = p.get("summary", "")
-        authors = p.get("authors") or []
-        if len(authors) > 3:
-            author_str = ", ".join(authors[:3]) + " et al."
+    ])
+    chunks: list[str] = []
+    current = header
+
+    for p in papers:
+        block = _paper_block(p)
+        if len(current) + len(block) > SLACK_LIMIT:
+            chunks.append(current.rstrip())
+            current = block
         else:
-            author_str = ", ".join(authors)
-        lines.append(f"• *[{pct}%]* <{p['arxiv_url']}|{p['title']}>")
-        affiliations = p.get("affiliations") or []
-        affil_str = " / ".join(affiliations[:2])
-        if affil_str and len(affiliations) > 2:
-            affil_str += f" 他{len(affiliations)-2}機関"
-        if author_str:
-            line = f"  👤 {author_str}"
-            if affil_str:
-                line += f"  ({affil_str})"
-            lines.append(line)
-        if reason:
-            lines.append(f"  _{reason}_")
-        if summary:
-            short = summary[:200] + "…" if len(summary) > 200 else summary
-            lines.append(f"  {short}")
-    if len(papers) > 15:
-        lines.append(f"\n... 他 {len(papers) - 15} 件")
+            current += block
+
+    if current.strip():
+        chunks.append(current.rstrip())
+
+    return chunks
+
+
+def _paper_block(p: dict[str, Any]) -> str:
+    pct = int(p.get("score", 0) * 100)
+    reason = p.get("score_reason", "")
+    summary = p.get("summary", "")
+    authors = p.get("authors") or []
+    author_str = ", ".join(authors[:3]) + (" et al." if len(authors) > 3 else "")
+    affiliations = p.get("affiliations") or []
+    affil_str = " / ".join(affiliations[:2])
+    if affil_str and len(affiliations) > 2:
+        affil_str += f" 他{len(affiliations)-2}機関"
+
+    lines = [f"• *[{pct}%]* <{p['arxiv_url']}|{p['title']}>"]
+    if author_str:
+        line = f"  👤 {author_str}"
+        if affil_str:
+            line += f"  ({affil_str})"
+        lines.append(line)
+    if reason:
+        lines.append(f"  _{reason}_")
+    if summary:
+        short = summary[:400] + "…" if len(summary) > 400 else summary
+        lines.append(f"  {short}")
+    lines.append("")
     return "\n".join(lines)
 
 

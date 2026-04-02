@@ -1,7 +1,7 @@
 """日次パイプライン: arxiv取得 → LLMスコアリング → Supabase保存 → PDF要約 → 通知。"""
 
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 from loguru import logger
 from supabase import Client
@@ -20,7 +20,7 @@ async def run_pipeline(
     target_date: date | None = None,
 ) -> None:
     if target_date is None:
-        target_date = date.today()
+        target_date = date.today() - timedelta(days=1)
 
     logger.info(f"=== パイプライン開始: {target_date} ===")
 
