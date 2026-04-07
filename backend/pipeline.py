@@ -19,10 +19,11 @@ async def run_pipeline(
     settings: dict[str, Any],
     target_date: date | None = None,
 ) -> None:
+    use_rss = target_date is None  # 日付未指定 → RSS、指定あり → API
     if target_date is None:
-        target_date = date.today() - timedelta(days=1)
+        target_date = date.today()
 
-    logger.info(f"=== パイプライン開始: {target_date} ===")
+    logger.info(f"=== パイプライン開始: {target_date} ({'RSS' if use_rss else 'API'}) ===")
 
     categories: list[str] = settings.get("interest_categories", ["cs.AI", "cs.LG"])
     interests: list[str] = settings.get("interest_keywords", [])
@@ -35,7 +36,7 @@ async def run_pipeline(
     # ── Stage 1: Fetch ──────────────────────────────────────────────────
     _log(supabase, "fetch", "running", 0, None, target_date)
     try:
-        papers = await fetch_papers_for_date(categories, target_date, max_results)
+        papers = await fetch_papers_for_date(categories, target_date, max_results, use_rss=use_rss)
         _log(supabase, "fetch", "success", len(papers), None, target_date)
     except Exception as exc:
         _log(supabase, "fetch", "failed", 0, str(exc), target_date)

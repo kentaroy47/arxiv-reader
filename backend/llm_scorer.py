@@ -50,8 +50,11 @@ Score the paper's relevance using these criteria:
 
 Few-shot examples:
 - A paper proposing a new LLM inference optimization achieving 3x speedup → score: 0.92 (directly matches "LLM inference")
-- A paper on 3D object detection using LiDAR for autonomous driving → score: 0.88 (matches "lidar" and "autonomous driving")
-- A paper on medical image segmentation with diffusion models → score: 0.35 (unrelated to stated interests)
+- A paper on 3D object detection using LiDAR point clouds for autonomous driving → score: 0.92 (matches "LiDAR", "point cloud", "autonomous driving")
+- A paper on BEV perception with multi-modal sensor fusion including LiDAR and camera → score: 0.88 (matches "LiDAR", "autonomous driving")
+- A paper on KV cache compression to speed up LLM inference → score: 0.85 (matches "LLM inference")
+- A paper on medical image segmentation with diffusion models → score: 0.25 (unrelated to stated interests)
+- A paper on general image classification → score: 0.15 (unrelated)
 
 Now score this paper:
 Title: {paper["title"]}
