@@ -37,6 +37,9 @@ async def run_pipeline(
     _log(supabase, "fetch", "running", 0, None, target_date)
     try:
         papers = await fetch_papers_for_date(categories, target_date, max_results, use_rss=use_rss)
+        if not papers and not use_rss:
+            logger.warning("API で論文が見つかりませんでした — RSS にフォールバック")
+            papers = await fetch_papers_for_date(categories, target_date, max_results, use_rss=True)
         _log(supabase, "fetch", "success", len(papers), None, target_date)
     except Exception as exc:
         _log(supabase, "fetch", "failed", 0, str(exc), target_date)
