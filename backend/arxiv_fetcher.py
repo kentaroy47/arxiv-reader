@@ -15,9 +15,13 @@ from loguru import logger
 
 ARXIV_API = "https://export.arxiv.org/api/query"
 RSS_BASE = "https://rss.arxiv.org/rss"
-REQUEST_DELAY = 5.0
-MAX_RETRIES = 4
+REQUEST_DELAY = 15.0
+MAX_RETRIES = 5
 HEADERS = {"User-Agent": "arxiv-reader/1.0 (research tool; mailto:local)"}
+
+
+class RateLimitError(Exception):
+    """arxiv API がレート制限を返し続けた場合に送出される。"""
 
 
 async def fetch_papers_for_date(
@@ -26,7 +30,9 @@ async def fetch_papers_for_date(
     max_results: int = 200,
     use_rss: bool = False,
 ) -> list[dict[str, Any]]:
-    """論文を取得する。use_rss=True または日付未指定時は RSS を使用。"""
+    """論文を取得する。use_rss=True または日付未指定時は RSS を使用。
+    レート制限が解消しない場合は RateLimitError を送出する。
+    """
     if use_rss:
         return await _fetch_rss_all(categories, max_results)
     return await _fetch_api_all(categories, target_date, max_results)
@@ -52,9 +58,12 @@ async def _fetch_rss_all(categories: list[str], max_results: int) -> list[dict[s
     return _dedup(all_papers)
 
 
-async def _fetch_api_all(categories: list[str], target_date: date, max_results: int) -> list[dict[str, Any]]:
-    """arxiv API で指定日の論文を取得。"""
+async def _fetch_api_all(
+    categories: list[str], target_date: date, max_results: int
+) -> list[dict[str, Any]]:
+    """arxiv API で指定日の論文を取得。レート制限が解消しない場合は RateLimitError を送出する。"""
     all_papers: list[dict[str, Any]] = []
+    rate_limited = False
     date_str = target_date.strftime("%Y%m%d")
     next_str = (target_date + timedelta(days=1)).strftime("%Y%m%d")
 
@@ -74,8 +83,14 @@ async def _fetch_api_all(categories: list[str], target_date: date, max_results: 
                 papers = await _fetch_with_retry(client, params)
                 logger.info(f"  {cat}: {len(papers)} 件")
                 all_papers.extend(papers)
+            except RateLimitError:
+                rate_limited = True
+                logger.error(f"API レート制限 [{cat}]: スキップして続行")
             except Exception as exc:
                 logger.error(f"API 取得失敗 [{cat}]: {exc}")
+
+    if rate_limited and not all_papers:
+        raise RateLimitError("全カテゴリがレート制限されました")
     return _dedup(all_papers)
 
 
@@ -90,7 +105,7 @@ async def _fetch_with_retry(client: httpx.AsyncClient, params: dict) -> list[dic
         resp.raise_for_status()
         feed = feedparser.parse(resp.text)
         return [p for e in feed.entries if (p := _parse_api_entry(e))]
-    raise RuntimeError(f"{MAX_RETRIES} 回リトライしても 429 が解消しませんでした")
+    raise RateLimitError(f"{MAX_RETRIES} 回リトライしても 429 が解消しませんでした")
 
 
 def _dedup(papers: list[dict[str, Any]]) -> list[dict[str, Any]]:

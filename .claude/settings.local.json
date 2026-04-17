@@ -22,7 +22,14 @@
       "Bash(curl -s \"https://export.arxiv.org/api/query?search_query=cat:cs.CV+AND+submittedDate:[202604090000+TO+202604100000]&start=0&max_results=5\")",
       "Bash(curl -v \"https://export.arxiv.org/api/query?search_query=cat:cs.CV+AND+submittedDate:[202604090000+TO+202604100000]&max_results=3\")",
       "Bash(curl -s -G https://export.arxiv.org/api/query --data-urlencode 'search_query=cat:cs.CV AND submittedDate:[202604090000 TO 202604100000]' --data-urlencode max_results=3 --data-urlencode sortBy=submittedDate)",
-      "Bash(curl -s \"https://export.arxiv.org/api/query?search_query=cat%3Acs.CV%20AND%20submittedDate%3A%5B202604090000%20TO%20202604100000%5D&max_results=3\")"
+      "Bash(curl -s \"https://export.arxiv.org/api/query?search_query=cat%3Acs.CV%20AND%20submittedDate%3A%5B202604090000%20TO%20202604100000%5D&max_results=3\")",
+      "Bash(python3 -c ' *)",
+      "Bash(pip3 show *)",
+      "Bash(pip show *)",
+      "Bash(python3 -c \"import dotenv; print\\(dotenv.__file__\\)\")",
+      "Bash(python3 -c \"import python_dotenv\")",
+      "Bash(python3 -c \"from python_dotenv import load_dotenv\")",
+      "Bash(/home/ken/miniconda3/envs/torch/bin/python3 -c ' *)"
     ]
   }
 }

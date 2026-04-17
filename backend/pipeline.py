@@ -6,7 +6,7 @@ from typing import Any
 from loguru import logger
 from supabase import Client
 
-from arxiv_fetcher import fetch_papers_for_date, fetch_affiliations
+from arxiv_fetcher import fetch_papers_for_date, fetch_affiliations, RateLimitError
 from llm_scorer import score_papers_batch, summarize_paper
 from pdf_downloader import download_and_extract
 from notifier import send_notification
@@ -41,6 +41,10 @@ async def run_pipeline(
             logger.warning("API で論文が見つかりませんでした — RSS にフォールバック")
             papers = await fetch_papers_for_date(categories, target_date, max_results, use_rss=True)
         _log(supabase, "fetch", "success", len(papers), None, target_date)
+    except RateLimitError as exc:
+        logger.error(f"API レート制限: {exc} — しばらく待ってから再実行してください")
+        _log(supabase, "fetch", "failed", 0, str(exc), target_date)
+        return
     except Exception as exc:
         _log(supabase, "fetch", "failed", 0, str(exc), target_date)
         logger.error(f"Fetch 失敗: {exc}")

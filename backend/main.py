@@ -35,22 +35,15 @@ def build_supabase() -> Client:
     return create_client(url, key)
 
 
-def load_settings(supabase: Client) -> dict:
-    """Supabase の user_settings テーブルから設定を読み込む。"""
-    try:
-        resp = supabase.table("user_settings").select("*").eq("id", 1).execute()
-        if resp.data:
-            logger.info("Supabase から設定を読み込みました")
-            return resp.data[0]
-    except Exception as exc:
-        logger.warning(f"Supabase 設定読み込み失敗、.env フォールバック: {exc}")
-
-    # .env フォールバック
+def load_settings() -> dict:
+    """ローカル .env から設定を読み込む。"""
+    raw_keywords = os.getenv("INTEREST_KEYWORDS", "")
+    raw_categories = os.getenv("INTEREST_CATEGORIES", "cs.AI,cs.LG")
     return {
-        "interest_keywords": [],
-        "interest_categories": ["cs.AI", "cs.LG"],
-        "score_threshold": 0.6,
-        "max_results": 100,
+        "interest_keywords": [k.strip() for k in raw_keywords.split(",") if k.strip()],
+        "interest_categories": [c.strip() for c in raw_categories.split(",") if c.strip()],
+        "score_threshold": float(os.getenv("SCORE_THRESHOLD", "0.6")),
+        "max_results": int(os.getenv("MAX_RESULTS", "100")),
         "ollama_url": os.getenv("OLLAMA_URL", "http://localhost:11434"),
         "ollama_model": os.getenv("OLLAMA_MODEL", "qwen3:8b"),
         "notification_type": os.getenv("NOTIFICATION_TYPE", "none"),
@@ -66,7 +59,7 @@ def load_settings(supabase: Client) -> dict:
 
 
 async def scheduled_job(supabase: Client) -> None:
-    settings = load_settings(supabase)
+    settings = load_settings()
     await run_pipeline(supabase, settings)
 
 
@@ -79,12 +72,12 @@ async def main() -> None:
         if "--date" in sys.argv:
             idx = sys.argv.index("--date")
             target_date = date.fromisoformat(sys.argv[idx + 1])
-        settings = load_settings(supabase)
+        settings = load_settings()
         await run_pipeline(supabase, settings, target_date)
         return
 
     # ── スケジューラーモード ─────────────────────────────────────────
-    settings = load_settings(supabase)
+    settings = load_settings()
     hour = int(settings.get("schedule_hour", 8))
     minute = int(settings.get("schedule_minute", 0))
 
