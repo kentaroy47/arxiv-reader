@@ -82,17 +82,15 @@ def _paper_block(p: dict[str, Any]) -> str:
     reason = p.get("score_reason", "")
     summary = p.get("summary", "")
     authors = p.get("authors") or []
-    author_str = ", ".join(authors[:3]) + (" et al." if len(authors) > 3 else "")
+    first_author = authors[0] if authors else ""
     affiliations = p.get("affiliations") or []
-    affil_str = " / ".join(affiliations[:2])
-    if affil_str and len(affiliations) > 2:
-        affil_str += f" 他{len(affiliations)-2}機関"
+    first_affil = affiliations[0] if affiliations else ""
 
     lines = [f"• *[{pct}%]* <{p['arxiv_url']}|{p['title']}>"]
-    if author_str:
-        line = f"  👤 {author_str}"
-        if affil_str:
-            line += f"  ({affil_str})"
+    if first_author:
+        line = f"  👤 {first_author}"
+        if first_affil:
+            line += f"  ({first_affil})"
         lines.append(line)
     if reason:
         lines.append(f"  _{reason}_")
