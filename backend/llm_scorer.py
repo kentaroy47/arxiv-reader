@@ -38,30 +38,39 @@ async def _score_one(
 ) -> tuple[float, str]:
     """1論文のスコアを返す (score: 0.0–1.0, reason: 日本語)。"""
     interests_str = "、".join(interests) if interests else "機械学習、AI"
-    prompt = f"""You are a research assistant helping a researcher filter arxiv papers.
+    prompt = f"""You are a strict senior reviewer filtering ~500 daily arxiv papers for a busy researcher.
+Only a handful per day (about 3%) deserve their attention. Be harsh: the default for a typical paper is LOW.
 
 Researcher's interests: {interests_str}
 
-Score the paper's relevance using these criteria:
-- 0.9–1.0: Directly addresses the researcher's core interests. Must-read.
-- 0.7–0.9: Clearly related, useful methods or results. Worth reading.
-- 0.5–0.7: Peripheral topic, some overlap. Read if time allows.
-- 0.0–0.5: Largely unrelated.
+Rate two things as integers 1–10.
 
-Few-shot examples:
-- A paper proposing a new LLM inference optimization achieving 3x speedup → score: 0.92 (directly matches "LLM inference")
-- A paper on 3D object detection using LiDAR point clouds for autonomous driving → score: 0.92 (matches "LiDAR", "point cloud", "autonomous driving")
-- A paper on BEV perception with multi-modal sensor fusion including LiDAR and camera → score: 0.88 (matches "LiDAR", "autonomous driving")
-- A paper on KV cache compression to speed up LLM inference → score: 0.85 (matches "LLM inference")
-- A paper on medical image segmentation with diffusion models → score: 0.25 (unrelated to stated interests)
-- A paper on general image classification → score: 0.15 (unrelated)
+relevance — how central the paper is to the interests:
+- 9–10: The core contribution IS one of the interests (e.g. a new LLM serving system, a LiDAR 3D detector for driving).
+- 6–8: Clearly within an interest area, but a narrower or adjacent angle.
+- 3–5: Shares a keyword only (e.g. "efficient", "3D", "caching") but the actual subject is different
+  (video generation, diffusion models, agents, reasoning methods, robot manipulation, weather models, etc.).
+- 1–2: Unrelated.
 
-Now score this paper:
+novelty — how new the core idea is (judge the idea, not the claimed numbers):
+- 9–10: Rare. A genuinely new problem framing, mechanism, or system design that changes how people approach the area.
+- 6–8: A clearly new idea or surprising finding with convincing evidence; not just a recombination of known tricks.
+- 3–5: Incremental: a variant/combination of known methods, a new heuristic in a crowded line of work, tuning,
+  applying an existing technique to a new model/domain, or a benchmark/dataset/survey without a new insight.
+- 1–2: No real new idea.
+
+CROWDED TOPICS — the researcher finds these repetitive: KV cache compression/eviction/offloading,
+post-training quantization (low-bit weights/activations/KV), pruning/sparsification, token pruning/merging.
+For papers in these topics, novelty must be at most 4 unless the abstract shows a fundamentally different
+approach (not another scoring rule, bit-width, grouping, or calibration trick).
+
+Most papers should get novelty 3–5. Do not reward buzzwords, catchy names, or "we achieve X× speedup" alone.
+
 Title: {paper["title"]}
 Abstract: {paper["abstract"][:1500]}
 
 Respond with JSON only (no markdown):
-{{"score": <float 0.0-1.0>, "reason": "<1-2 sentences in Japanese explaining the score>"}}"""
+{{"relevance": <int>, "novelty": <int>, "reason": "<1-2 sentences in Japanese: what the paper does and what is (or is not) new about it>"}}"""
 
     async with semaphore:
         try:
@@ -79,9 +88,10 @@ Respond with JSON only (no markdown):
                 resp.raise_for_status()
                 content = resp.json()["message"]["content"]
                 data = _extract_json(content)
-                score = float(data.get("score", 0.0))
+                relevance = max(1.0, min(10.0, float(data.get("relevance", 1))))
+                novelty = max(1.0, min(10.0, float(data.get("novelty", 1))))
                 reason = str(data.get("reason", ""))
-                return max(0.0, min(1.0, score)), reason
+                return _combine(relevance, novelty), reason
         except Exception as exc:
             logger.warning(f"Score failed [{paper['arxiv_id']}]: {exc}")
             return 0.0, ""
@@ -119,6 +129,11 @@ async def summarize_paper(
     except Exception as exc:
         logger.warning(f"Summarize failed [{paper['arxiv_id']}]: {exc}")
         return ""
+
+
+def _combine(relevance: float, novelty: float) -> float:
+    """relevance/novelty (1–10) を 0.0–1.0 のスコアに変換。新規性を重視し、両方高くないと高得点にならない。"""
+    return round((relevance / 10) ** 0.45 * (novelty / 10) ** 0.55, 3)
 
 
 def _extract_json(text: str) -> dict:
